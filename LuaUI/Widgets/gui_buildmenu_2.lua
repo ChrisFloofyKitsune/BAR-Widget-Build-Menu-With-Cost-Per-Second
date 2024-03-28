@@ -3,7 +3,7 @@ function widget:GetInfo()
 		name = "Build menu v2",
 		desc = "",
 		author = "Floris. Cost/second by engolianth and zenfur. Updated by ChrisFloofyKitsune.",
-		date = "Jan 2024",
+		date = "April 2024",
 		license = "GNU GPL, v2 or later",
 		layer = 0,
 		enabled = true,
@@ -381,9 +381,7 @@ local function RefreshCommands()
 
 			local cmdUnitdefs = {}
 			for i, udefid in pairs(unitBuildOptions[startDefID]) do
-				if not units.unbaStartBuildoptions or units.unbaStartBuildoptions[udefid] then
-					cmdUnitdefs[udefid] = i
-				end
+				cmdUnitdefs[udefid] = i
 			end
 			for k, uDefID in pairs(units.unitOrder) do
 				if cmdUnitdefs[uDefID] then
@@ -840,7 +838,7 @@ end
 
 
 function widget:DrawScreen()
-	
+
 	-- refresh buildmenu if active cmd changed
 	local prevActiveCmd = activeCmd
 	if Spring.GetGameFrame() == 0 and WG['pregame-build'] then
@@ -1123,7 +1121,9 @@ end
 
 local function setPreGamestartDefID(uDefID)
 	selBuildQueueDefID = uDefID
-	WG['pregame-build'].setPreGamestartDefID(uDefID)
+	if WG['pregame-build'] then
+		WG['pregame-build'].setPreGamestartDefID(uDefID)
+	end
 end
 
 function widget:MousePress(x, y, button)
@@ -1305,7 +1305,6 @@ function widget:Initialize()
 	for _, optionSpec in ipairs(OPTION_SPECS) do
 		addOptionFromSpec(optionSpec)
 	end
-
 
 	-- Get our starting unit
 	if preGamestartPlayer then
