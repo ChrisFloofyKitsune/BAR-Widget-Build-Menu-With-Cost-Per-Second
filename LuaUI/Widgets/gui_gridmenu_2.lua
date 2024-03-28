@@ -2551,13 +2551,19 @@ function widget:Shutdown()
 		dlistGuishader = nil
 	end
 	WG["buildmenu"] = nil
+
+	if WG['options'] ~= nil then
+		for _, option in ipairs(OPTION_SPECS) do
+			WG['options'].removeOption(getOptionId(option))
+		end
+	end
 end
 
 -------------------------------------------------------------------------------
 --- V2 EXTRA FUNCTIONS
 -------------------------------------------------------------------------------
 
-local function AddSpaces(price, sufix)
+function AddSpaces(price, sufix)
 	sufix = sufix or ""
 
 	if price >= 1000 then
@@ -2568,7 +2574,7 @@ local function AddSpaces(price, sufix)
 end
 
 
-local function drawDetailedCostLabels(label_x, label_y, uid, fontSize)
+function drawDetailedCostLabels(label_x, label_y, uid, fontSize)
 	local metalColor = disabled and "\255\125\125\125" or "\255\245\245\245"
 	local energyColor = disabled and "\255\135\135\135" or "\255\255\255\000"
 	local timeColor = disabled and "\255\100\100\100" or "\255\185\240\185"
@@ -2601,7 +2607,7 @@ local function drawDetailedCostLabels(label_x, label_y, uid, fontSize)
 end
 
 
-local function getSelectedBuildPower()
+function getSelectedBuildPower()
 	local buildpower = 0
 	selection = Spring.GetSelectedUnits()
 	for i, unitId in pairs(selection) do
@@ -2629,7 +2635,7 @@ end
 		tl, tr, br, bl = enable/disable corners for TopLeft, TopRight, BottomRight, BottomLeft (default: 1)
 		c1, c2 = top color, bottom color
 ]]
-local function RoundTriangle(px, py, sx, sy,  cs,   tl, tr, br, bl,   c1, c2)
+function RoundTriangle(px, py, sx, sy,  cs,   tl, tr, br, bl,   c1, c2)
 	-- RectRound(px,py,sx,sy,cs, tl,tr,br,bl, c1,c2): Draw a rectangular shape with cut off edges
 	--  optional: tl,tr,br,bl  0 = no corner (1 = always)
 	--  optional: c1,c2 for top-down color gradients
