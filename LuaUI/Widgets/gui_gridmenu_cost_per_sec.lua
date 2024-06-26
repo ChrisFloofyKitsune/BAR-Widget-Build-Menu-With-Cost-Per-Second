@@ -64,6 +64,7 @@ local config_cost_per_second = {
 	useLabBuildMode = true,
 	showDetailedPrice = true,
 	showInfoUnderCursor = true,
+	showDecimals = false,
 }
 
 local OPTION_COST_PER_SECOND_SPECS = {
@@ -100,6 +101,12 @@ local OPTION_COST_PER_SECOND_SPECS = {
 		description = "Show the costs/second of selected building next to cursor",
 		type = "bool",
 	},
+	{
+		configVariable = "showDecimals",
+		name = "Show Decimals",
+		description = "Show decimals in the build time. (e.g. 1.5s)",
+		type = "bool",
+	}
 }
 
 local function getOptionId(optionSpec)
@@ -198,19 +205,21 @@ end
 local formatPrice = get_formatPrice()
 
 local function formatBuildTime(buildTime)
-	if buildTime < 1 then
-		return ("%.2f s"):format(buildTime)
+	if config_cost_per_second.showDecimals then
+		if buildTime < 1 then
+			return ("%.2f s"):format(buildTime)
+		end
+	
+		if buildTime < 10 then
+			return ("%.1f s"):format(buildTime)
+		end
 	end
 
-	if buildTime < 10 then
-		return ("%.1f s"):format(buildTime)
-	end
-
+	local seconds = math_round(buildTime % 60)
 	if buildTime < 60 then
-		return ("%d s"):format(buildTime)
+		return ("%d s"):format(seconds)
 	end
 
-	local seconds = buildTime % 60
 	local minutes = math_floor((buildTime % 3600) / 60)
 	if buildTime < 3600 then
 		return ("%d m %02d s"):format(minutes, seconds)
