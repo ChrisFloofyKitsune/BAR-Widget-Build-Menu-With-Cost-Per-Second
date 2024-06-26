@@ -265,7 +265,7 @@ local function drawDetailedCostLabels(label_x, label_y, uid, fontSize, disabled)
 end
 
 local function drawCursorInfo()
-	if not config_cost_per_second.showInfoUnderCursor then
+	if not config_cost_per_second.showInfoUnderCursor or not get_activeBuilder() then
 		return
 	end
 	
