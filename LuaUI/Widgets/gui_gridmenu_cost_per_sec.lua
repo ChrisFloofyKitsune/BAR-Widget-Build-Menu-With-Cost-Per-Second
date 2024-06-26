@@ -90,14 +90,14 @@ local OPTION_COST_PER_SECOND_SPECS = {
 	},
 	{
 		configVariable = "showDetailedPrice",
-		name = "Show detailed price",
+		name = "Build Menu Info",
 		description = "Show detailed price in grid menu with cost per seconds and time to finish",
 		type = "bool",
 	},
 	{
 		configVariable = "showInfoUnderCursor",
-		name = "Show context details under cursor",
-		description = "Show context details of selected building next to cursor",
+		name = "Cursor Info",
+		description = "Show the costs/second of selected building next to cursor",
 		type = "bool",
 	},
 }
