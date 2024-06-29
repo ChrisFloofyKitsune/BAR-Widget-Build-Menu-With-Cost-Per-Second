@@ -31,7 +31,9 @@ local locals_to_make_accessors_for = {
 	"startDefID",
 	"formatPrice",
 	"activeBuilder",
+	"activeBuilderID",
 	"refreshCommands",
+	"hoveredRect",
 }
 
 for _, var_name in pairs(locals_to_make_accessors_for) do
@@ -62,9 +64,12 @@ local config_cost_per_second = {
 	alwaysReturn = true,
 	autoSelectFirst = true,
 	useLabBuildMode = true,
-	showDetailedPrice = true,
-	showInfoUnderCursor = true,
+	showCostPerSecond = false,
+	showBuildTime = true,
 	showDecimals = false,
+	cursorInfo = true,
+	cursorInfoSize = 1.5,
+	cursorInfoOffset = 10,
 }
 
 local OPTION_COST_PER_SECOND_SPECS = {
@@ -90,15 +95,15 @@ local OPTION_COST_PER_SECOND_SPECS = {
 		widgetApiFunction = 'setUseLabBuildMode',
 	},
 	{
-		configVariable = "showDetailedPrice",
-		name = "Build Menu Info",
-		description = "Show detailed price in grid menu with cost per seconds and time to finish",
+		configVariable = "showCostPerSecond",
+		name = "Extra Info - Cost/Second",
+		description = "Show dynamic cost/second in the extra info",
 		type = "bool",
 	},
 	{
-		configVariable = "showInfoUnderCursor",
-		name = "Cursor Info",
-		description = "Show the costs/second of selected building next to cursor",
+		configVariable = "showBuildTime",
+		name = "Extra Info - Build Time",
+		description = "Show dynamic build time in the extra info",
 		type = "bool",
 	},
 	{
@@ -106,6 +111,30 @@ local OPTION_COST_PER_SECOND_SPECS = {
 		name = "Show Decimals",
 		description = "Show decimals in the build time. (e.g. 1.5s)",
 		type = "bool",
+	},
+	{
+		configVariable = "cursorInfo",
+		name = "Cursor Info",
+		description = "Show selected building's extra info under the cursor",
+		type = "bool",
+	},
+	{
+		configVariable = "cursorInfoSize",
+		name = "Cursor Info Size",
+		description = "Font size multiplier for the cursor info",
+		type = "slider",
+		min = 1,
+		max = 2,
+		step = 0.1,
+	},
+	{
+		configVariable = "cursorInfoOffset",
+		name = "Cursor Info Offset",
+		description = "Offset from the cursor for the cursor info",
+		type = "slider",
+		min = 0,
+		max = 20,
+		step = 1,
 	}
 }
 
@@ -151,21 +180,24 @@ local function setOptionValue(optionSpec, value)
 	end
 end
 
-local function createOnChange(optionSpec)
-	return function(i, value, force)
+local function createOnChangeFunc(optionSpec)
+	return function(_, value, __)
 		setOptionValue(optionSpec, value)
+		get_refreshCommands()()
 	end
 end
 
 local function addOptionFromSpec(optionSpec)
 	local option = table.copy(optionSpec)
 
+	-- Clear option spec fields that are not needed in the option object
 	option.configVariable = nil
 	option.enabled = nil
+	-- Configure the option object
 	option.id = getOptionId(optionSpec)
 	option.widgetname = getWidgetName()
 	option.value = getOptionValue(optionSpec)
-	option.onchange = createOnChange(optionSpec)
+	option.onchange = createOnChangeFunc(optionSpec)
 
 	if WG['options'] ~= nil then
 		WG['options'].addOption(option)
@@ -177,10 +209,7 @@ end
 -------------------------------------------------------------------------------
 
 local selectedBuildPower = 100
-
--------------------------------------------------------------------------------
---- Unit prep
--------------------------------------------------------------------------------
+local font2
 
 local units = get_units()
 units.unitBuildTime = {}
@@ -209,7 +238,7 @@ local function formatBuildTime(buildTime)
 		if buildTime < 1 then
 			return ("%.2f s"):format(buildTime)
 		end
-	
+
 		if buildTime < 10 then
 			return ("%.1f s"):format(buildTime)
 		end
@@ -231,10 +260,6 @@ end
 
 local function drawDetailedCostLabels(label_x, label_y, uid, fontSize, disabled)
 	local _, err = pcall(function()
-		if not font2 then
-			font2 = get_font2()
-		end
-
 		if disabled == nil then
 			disabled = false
 		end
@@ -243,28 +268,37 @@ local function drawDetailedCostLabels(label_x, label_y, uid, fontSize, disabled)
 			return
 		end
 
-		local metalCost = units.unitMetalCost[uid]
-		local energyCost = units.unitEnergyCost[uid]
 		local buildTime = units.unitBuildTime[uid]
-
-		if metalCost == nil or energyCost == nil or buildTime == nil or buildTime <= 0 then
+		if buildTime == nil or buildTime <= 0 then
 			return
 		end
+		local buildPower = selectedBuildPower or 100
 
 		local metalColor = disabled and "\255\125\125\125" or "\255\245\245\245"
 		local energyColor = disabled and "\255\135\135\135" or "\255\255\255\000"
 		local timeColor = disabled and "\255\100\100\100" or "\255\185\240\185"
 
-		local buildPower = selectedBuildPower or 100
-		local metalPerSecond = formatPrice(math_round(metalCost / buildTime * buildPower)) .. '/s'
-		local energyPerSecond = formatPrice(math_round(energyCost / buildTime * buildPower)) .. '/s'
-		local timeEstimate = formatBuildTime(buildTime / buildPower)
+		local infoLines = {}
+		if config_cost_per_second.showCostPerSecond then
+			local metalCost = units.unitMetalCost[uid]
+			local energyCost = units.unitEnergyCost[uid]
 
-		local font2 = get_font2()
+			if metalCost ~= nil and energyCost ~= nil then
+				infoLines[#infoLines + 1] = metalColor .. formatPrice(math_round(metalCost / buildTime * buildPower)) .. '/s'
+				infoLines[#infoLines + 1] = energyColor .. formatPrice(math_round(energyCost / buildTime * buildPower)) .. '/s'
+			end
+		end
+		if config_cost_per_second.showBuildTime then
+			infoLines[#infoLines + 1] = timeColor .. formatBuildTime(buildTime / buildPower)
+		end
 
-		font2:Print(metalColor .. metalPerSecond, label_x, label_y - (fontSize), fontSize, "ro")
-		font2:Print(energyColor .. energyPerSecond, label_x, label_y - (fontSize * 2), fontSize, "ro")
-		font2:Print(timeColor .. timeEstimate, label_x, label_y - (fontSize * 3), fontSize, "ro")
+		if #infoLines == 0 then
+			return
+		end
+
+		for i, line in pairs(infoLines) do
+			font2:Print(line, label_x, label_y - (fontSize * i), fontSize, "ro")
+		end
 	end)
 
 	if err then
@@ -274,12 +308,12 @@ local function drawDetailedCostLabels(label_x, label_y, uid, fontSize, disabled)
 end
 
 local function drawCursorInfo()
-	if not config_cost_per_second.showInfoUnderCursor or not get_activeBuilder() then
+	if not config_cost_per_second.cursorInfo or not get_activeBuilder() or get_hoveredRect() then
 		return
 	end
-	
+
 	local x, y, _, _, _ = Spring.GetMouseState()
-	local activeCmd = nil
+	local activeCmd
 	if get_isPregame() then
 		local prebuildId = WG["pregame-build"] and WG['pregame-build'].getPreGameDefID and WG['pregame-build'].getPreGameDefID()
 		activeCmd = prebuildId and -prebuildId or nil
@@ -288,20 +322,56 @@ local function drawCursorInfo()
 	end
 
 	if activeCmd ~= nil then
-		drawDetailedCostLabels(x + 10, y, -activeCmd, 2 * get_priceFontSize())
+		local offset = config_cost_per_second.cursorInfoOffset
+		drawDetailedCostLabels(
+			x - offset,
+			y - offset,
+			-activeCmd,
+			config_cost_per_second.cursorInfoSize * get_priceFontSize()
+		)
+	end
+end
+
+local function drawRectInfo(rect)
+	local linesToShow = 0
+	linesToShow = linesToShow + (config_cost_per_second.showCostPerSecond and 2 or 0)
+	linesToShow = linesToShow + (config_cost_per_second.showBuildTime and 1 or 0)
+
+	if linesToShow == 0 then
+		return
+	end
+
+	local priceFontSize = get_priceFontSize()
+	local hotkeyFontSize = priceFontSize * 1.2
+	local cellPadding = get_cellPadding()
+	local cellInnerSize = get_cellInnerSize()
+
+	if get_showPrice() or rect.opts.hovered then
+		drawDetailedCostLabels(
+			rect.xEnd - cellPadding - (cellInnerSize * 0.048),
+			rect.yEnd - hotkeyFontSize - cellPadding - ((3 - linesToShow) * priceFontSize * 0.8),
+			rect.opts.uDefID,
+			priceFontSize * (linesToShow > 1 and 0.8 or 1),
+			rect.opts.disabled
+		)
 	end
 end
 
 local function calculateSelectedBuildPower()
 	local active_builder = get_activeBuilder()
 	if active_builder and units.soloBuilder[active_builder] == true then
-		selectedBuildPower = units.unitBuildSpeed[active_builder]
+		selectedBuildPower = units.unitBuildSpeed[active_builder] or 0
 	else
-		local build_power = 0
+		local build_power = units.unitBuildSpeed[active_builder] or 0
 		for unitDefID, unitIds in pairs(spGetSelectedUnitsSorted() or {}) do
 			local build_speed = units.unitBuildSpeed[unitDefID] or 0
-			if build_speed > 0 and units.soloBuilder[unitDefID] ~= true then
-				build_power = build_power + (build_speed * #unitIds)
+			if 
+				build_speed > 0
+				and units.soloBuilder[unitDefID] ~= true
+				and units.isFactory[unitDefID] ~= true 
+			then
+				local is_active_builder = active_builder == unitDefID
+				build_power = build_power + (build_speed * (#unitIds - (is_active_builder and 1 or 0)))
 			end
 		end
 
@@ -353,6 +423,7 @@ function widget:Initialize()
 	end
 
 	orig_widget_initialize(widget)
+	font2 = get_font2()
 
 	if get_isPregame() then
 		selectedBuildPower = units.unitBuildSpeed[get_startDefID()] or 300
@@ -404,24 +475,6 @@ set_refreshCommands(refreshCommands)
 local orig_draw_cell = get_drawCell()
 local function drawCell(rect)
 	orig_draw_cell(rect)
-
-	if not config_cost_per_second.showDetailedPrice then
-		return
-	end
-
-	local priceFontSize = get_priceFontSize()
-	local hotkeyFontSize = priceFontSize * 1.2
-	local cellPadding = get_cellPadding()
-	local cellInnerSize = get_cellInnerSize()
-
-	if get_showPrice() or rect.opts.hovered then
-		drawDetailedCostLabels(
-			rect.xEnd - cellPadding - (cellInnerSize * 0.048),
-			rect.yEnd - hotkeyFontSize - cellPadding,
-			rect.opts.uDefID,
-			priceFontSize * 0.8,
-			rect.opts.disabled
-		)
-	end
+	drawRectInfo(rect)
 end
 set_drawCell(drawCell)
