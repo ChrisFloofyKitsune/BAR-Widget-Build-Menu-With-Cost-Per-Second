@@ -1,3 +1,4 @@
 /LuaUI/Widgets/gui_gridmenu.lua
 /LuaUI/Widgets/gui_buildmenu.lua
 /LuaUI/Config/unit_buildmenu_config.lua
+*.idea/*
