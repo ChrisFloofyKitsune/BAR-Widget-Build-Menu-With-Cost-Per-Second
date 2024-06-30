@@ -1,9 +1,9 @@
 --- Patches gui_gridmenu.lua to add in cost per second and build time info (based on selected BP)
 local function my_get_info()
 	return {
-		name = "Grid Menu with Costs/Second",
-		desc = "A dynamically patched version of the Grid Menu that adds in cost per second and build time info",
-		author = "Floris, grid by badosu and resopmok. Cost/second by engolianth and zenfur. Maintained by ChrisFloofyKitsune.",
+		name = "Build Menu with Costs/Second",
+		desc = "A dynamically patched version of the Legacy Build Menu that adds in cost per second and build time info",
+		author = "Floris. Cost/second by engolianth and zenfur. Maintained by ChrisFloofyKitsune.",
 		date = "June 2024",
 		license = "GNU GPL, v2 or later",
 		layer = 0,
@@ -16,7 +16,7 @@ end
 --- Original Widget Loading
 -------------------------------------------------------------------------------
 
-local orig_text = VFS.LoadFile("LuaUI/Widgets/gui_gridmenu.lua")
+local orig_text = VFS.LoadFile("LuaUI/Widgets/gui_buildmenu.lua")
 
 local locals_to_make_accessors_for = {
 	"activeCmd",
@@ -26,14 +26,16 @@ local locals_to_make_accessors_for = {
 	"drawCell",
 	"showPrice",
 	"cellPadding",
+	"iconPadding",
 	"cellInnerSize",
-	"isPregame",
+	"preGamestartPlayer",
 	"startDefID",
 	"formatPrice",
-	"activeBuilder",
-	"activeBuilderID",
-	"refreshCommands",
-	"hoveredRect",
+	"cmds",
+	"cellRects",
+	"RefreshCommands",
+	"backgroundRect",
+	"selectedBuilderCount",
 }
 
 for _, var_name in pairs(locals_to_make_accessors_for) do
@@ -56,6 +58,8 @@ local spGetSelectedUnitsSorted = Spring.GetSelectedUnitsSorted
 local spGetMouseState = Spring.GetMouseState
 local math_floor = math.floor
 local math_round = math.round
+local math_isInRect = math.isInRect
+local math_max = math.max
 
 -------------------------------------------------------------------------------
 --- Configuration
@@ -74,27 +78,6 @@ local config_cost_per_second = {
 }
 
 local OPTION_COST_PER_SECOND_SPECS = {
-	{
-		configVariable = "alwaysReturn",
-		name = Spring.I18N('ui.settings.option.gridmenu_alwaysreturn'),
-		description = Spring.I18N('ui.settings.option.gridmenu_alwaysreturn_descr'),
-		type = "bool",
-		widgetApiFunction = 'setAlwaysReturn',
-	},
-	{
-		configVariable = "autoSelectFirst",
-		name = Spring.I18N('ui.settings.option.gridmenu_autoselectfirst'),
-		description = Spring.I18N('ui.settings.option.gridmenu_autoselectfirst_descr'),
-		type = "bool",
-		widgetApiFunction = 'setAutoSelectFirst',
-	},
-	{
-		configVariable = "useLabBuildMode",
-		name = Spring.I18N('ui.settings.option.gridmenu_labbuildmode'),
-		description = Spring.I18N('ui.settings.option.gridmenu_labbuildmode_descr'),
-		type = "bool",
-		widgetApiFunction = 'setUseLabBuildMode',
-	},
 	{
 		configVariable = "showCostPerSecond",
 		name = "Extra Info - Cost/Second",
@@ -140,11 +123,11 @@ local OPTION_COST_PER_SECOND_SPECS = {
 }
 
 local function getOptionId(optionSpec)
-	return "grid__menu__" .. optionSpec.configVariable
+	return "build__menu__" .. optionSpec.configVariable
 end
 
 local function getWidgetName()
-	return "Grid Menu with Costs/Second"
+	return "Build Menu with Costs/Second"
 end
 
 local function getOptionValue(optionSpec)
@@ -171,7 +154,7 @@ local function setOptionValue(optionSpec, value)
 		-- we have index, we need text
 		config_cost_per_second[optionSpec.configVariable] = optionSpec.options[value]
 	end
-	
+
 	if optionSpec.widgetApiFunction and WG['gridmenu'] ~= nil and WG['gridmenu'][optionSpec.widgetApiFunction] ~= nil then
 		WG['gridmenu'][optionSpec.widgetApiFunction](config_cost_per_second[optionSpec.configVariable])
 	end
@@ -180,7 +163,7 @@ end
 local function createOnChangeFunc(optionSpec)
 	return function(_, value, __)
 		setOptionValue(optionSpec, value)
-		get_refreshCommands()()
+		get_RefreshCommands()()
 	end
 end
 
@@ -205,7 +188,9 @@ end
 --- INTERFACE VALUES
 -------------------------------------------------------------------------------
 
-local selectedBuildPower = 100
+local shareableSelectedBuildPower = 100
+local baseSoloBuildPower = {}
+
 local font2
 
 local units = get_units()
@@ -213,11 +198,24 @@ units.buildTime = {}
 units.buildSpeed = {}
 units.canGiveBuildPower = {}
 
+units.buildOptionIds = {}
+units.nameToId = {}
+
 for unitDefID, unitDef in pairs(UnitDefs) do
 	units.buildTime[unitDefID] = unitDef.buildTime
+	units.nameToId[unitDef.name] = unitDefID
+	
 	if unitDef.isBuilder then
 		units.buildSpeed[unitDefID] = unitDef.buildSpeed or 0
 		units.canGiveBuildPower[unitDefID] = unitDef.canAssist ~= false and unitDef.isFactory ~= true
+
+		if unitDef.buildOptions then
+			local buildsList = {}
+			for _, buildOptId in pairs(unitDef.buildOptions) do
+				buildsList[buildOptId] = true
+			end
+			units.buildOptionIds[unitDefID] = buildsList
+		end
 	end
 end
 
@@ -225,7 +223,17 @@ end
 --- Helper Functions
 -------------------------------------------------------------------------------
 
-local formatPrice = get_formatPrice()
+local function posOverMenu(x, y)
+	local backgroundRect = get_backgroundRect()
+	return math_isInRect(x, y, backgroundRect[1], backgroundRect[2], backgroundRect[3], backgroundRect[4])
+end
+
+local function formatPrice(price)
+	if price >= 1000 then
+		return string.format("%s %03d", formatPrice(math_floor(price / 1000)), price % 1000)
+	end
+	return price
+end
 
 local function formatBuildTime(buildTime)
 	if config_cost_per_second.showDecimals then
@@ -266,7 +274,11 @@ local function drawDetailedCostLabels(label_x, label_y, uid, fontSize, disabled)
 		if buildTime == nil or buildTime <= 0 then
 			return
 		end
-		local buildPower = selectedBuildPower or 100
+		
+		local buildPower = (shareableSelectedBuildPower or 100) + (baseSoloBuildPower[uid] or 0)
+		if buildPower <= 0 then
+			return
+		end
 
 		local metalColor = disabled and "\255\125\125\125" or "\255\245\245\245"
 		local energyColor = disabled and "\255\135\135\135" or "\255\255\255\000"
@@ -302,31 +314,32 @@ local function drawDetailedCostLabels(label_x, label_y, uid, fontSize, disabled)
 end
 
 local function drawCursorInfo()
-	if not config_cost_per_second.cursorInfo or not get_activeBuilder() or get_hoveredRect() then
+	local x, y, _, _, _ = spGetMouseState()
+	if not config_cost_per_second.cursorInfo or posOverMenu(x, y) then
 		return
 	end
 
-	local x, y, _, _, _ = spGetMouseState()
-	local activeCmd
-	if get_isPregame() then
+	local activeUnitId
+	if get_preGamestartPlayer() then
 		local prebuildId = WG["pregame-build"] and WG['pregame-build'].getPreGameDefID and WG['pregame-build'].getPreGameDefID()
-		activeCmd = prebuildId and -prebuildId or nil
+		activeUnitId = prebuildId or nil
 	else
-		activeCmd = get_activeCmd()
+		local unitName = get_activeCmd()
+		activeUnitId = unitName and units.nameToId[unitName] or nil
 	end
 
-	if activeCmd ~= nil then
+	if activeUnitId ~= nil then
 		local offset = config_cost_per_second.cursorInfoOffset
 		drawDetailedCostLabels(
 			x - offset,
 			y - offset,
-			-activeCmd,
+			activeUnitId,
 			config_cost_per_second.cursorInfoSize * get_priceFontSize()
 		)
 	end
 end
 
-local function drawRectInfo(rect)
+local function drawRectInfo(cellRectID, disabled)
 	local linesToShow = 0
 	linesToShow = linesToShow + (config_cost_per_second.showCostPerSecond and 2 or 0)
 	linesToShow = linesToShow + (config_cost_per_second.showBuildTime and 1 or 0)
@@ -334,36 +347,53 @@ local function drawRectInfo(rect)
 	if linesToShow == 0 then
 		return
 	end
-
+	
+	local cellRects = get_cellRects()
+	local cmds = get_cmds()
+	local uDefID = cmds[cellRectID].id * -1
+	local xEnd = cellRects[cellRectID][3]
+	local yEnd = cellRects[cellRectID][4]
+	
 	local priceFontSize = get_priceFontSize()
-	local hotkeyFontSize = priceFontSize * 1.2
 	local cellPadding = get_cellPadding()
+	local iconPadding = get_iconPadding()
 	local cellInnerSize = get_cellInnerSize()
+	local useSmallFont = (cellInnerSize < priceFontSize * 6) and linesToShow > 1
 
-	if get_showPrice() or rect.opts.hovered then
+	if get_showPrice() then
 		drawDetailedCostLabels(
-			rect.xEnd - cellPadding - (cellInnerSize * 0.048),
-			rect.yEnd - hotkeyFontSize - cellPadding - ((3 - linesToShow) * priceFontSize * 0.8),
-			rect.opts.uDefID,
-			priceFontSize * (linesToShow > 1 and 0.8 or 1),
-			rect.opts.disabled
+			xEnd - cellPadding - (cellInnerSize * 0.048),
+			yEnd - iconPadding - cellPadding,
+			uDefID,
+			priceFontSize * (useSmallFont and 0.8 or 1),
+			disabled
 		)
 	end
 end
 
 local function calculateSelectedBuildPower()
-	local active_builder = get_activeBuilder()
-	local build_power = units.buildSpeed[active_builder] or 0
-
-	for unitDefID, unitIds in pairs(spGetSelectedUnitsSorted() or {}) do
-		local build_speed = units.buildSpeed[unitDefID] or 0
-		if build_speed > 0 and units.canGiveBuildPower[unitDefID] ~= false then
-			local is_active_builder = active_builder == unitDefID
-			build_power = build_power + (build_speed * (#unitIds - (is_active_builder and 1 or 0)))
-		end
+	if get_preGamestartPlayer() then
+		shareableSelectedBuildPower = units.buildSpeed[get_startDefID()] or 300
+		return
 	end
 
-	selectedBuildPower = build_power or 100
+	local shareable_build_power = 0
+	baseSoloBuildPower = {}
+	for unitDefID, unitIds in pairs(spGetSelectedUnitsSorted() or {}) do
+		local build_speed = units.buildSpeed[unitDefID] or 0
+		if build_speed > 0 then
+			if units.canGiveBuildPower[unitDefID] then
+				shareable_build_power = shareable_build_power + (build_speed * #unitIds)
+			else
+				for unitID, _ in pairs(units.buildOptionIds[unitDefID]) do
+					baseSoloBuildPower[unitID] = baseSoloBuildPower[unitID] and math_max(baseSoloBuildPower[unitID], build_speed) or build_speed
+				end
+			end
+		end
+
+		shareableSelectedBuildPower = shareable_build_power or (#baseSoloBuildPower == 0 and 100) or 0
+	end
+	
 end
 
 ---------------------------------------------------------------------------------
@@ -396,7 +426,7 @@ function widget:Initialize()
 	local exclusive_widgets = {
 		"Grid menu", "Build Menu", -- default widgets
 		"Build menu v2", "Grid menu v2", -- old versions of this widgets
-		"Build Menu with Costs/Second", -- alternate version of this widget
+		"Grid Menu with Costs/Second", -- alternate version of this widget
 	}
 
 	for _, widgetName in pairs(exclusive_widgets) do
@@ -412,8 +442,8 @@ function widget:Initialize()
 	orig_widget_initialize(widget)
 	font2 = get_font2()
 
-	if get_isPregame() then
-		selectedBuildPower = units.buildSpeed[get_startDefID()] or 300
+	if get_preGamestartPlayer() then
+		shareableSelectedBuildPower = units.buildSpeed[get_startDefID()] or 300
 	end
 end
 
@@ -431,8 +461,8 @@ end
 local orig_widget_update = widget.Update
 function widget:Update(dt)
 	orig_widget_update(widget, dt)
-	if get_isPregame() then
-		selectedBuildPower = units.buildSpeed[get_startDefID()] or 300
+	if get_preGamestartPlayer() then
+		shareableSelectedBuildPower = units.buildSpeed[get_startDefID()] or 300
 	end
 end
 
@@ -452,16 +482,16 @@ end
 --- Local Function Patching
 -------------------------------------------------------------------------------
 
-local orig_refresh_commands = get_refreshCommands()
-local function refreshCommands()
+local orig_refresh_commands = get_RefreshCommands()
+local function RefreshCommands()
 	orig_refresh_commands()
 	calculateSelectedBuildPower()
 end
-set_refreshCommands(refreshCommands)
+set_RefreshCommands(RefreshCommands)
 
 local orig_draw_cell = get_drawCell()
-local function drawCell(rect)
-	orig_draw_cell(rect)
-	drawRectInfo(rect)
+local function drawCell(cellRectID, usedZoom, cellColor, disabled)
+	orig_draw_cell(cellRectID, usedZoom, cellColor, disabled)
+	drawRectInfo(cellRectID, disabled)
 end
 set_drawCell(drawCell)
