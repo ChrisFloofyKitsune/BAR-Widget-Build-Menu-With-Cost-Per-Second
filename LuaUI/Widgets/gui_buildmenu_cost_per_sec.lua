@@ -1,9 +1,9 @@
---- Patches gui_gridmenu.lua to add in cost per second and build time info (based on selected BP)
+--- Patches gui_buildmenu.lua to add in cost per second and build time info (based on selected BP)
 local function my_get_info()
 	return {
 		name = "Build Menu with Costs/Second",
-		desc = "A dynamically patched version of the Legacy Build Menu that adds in cost per second and build time info",
-		author = "Floris. Cost/second by engolianth and zenfur. Maintained by ChrisFloofyKitsune.",
+		desc = "(Version 1.0)\nA dynamically patched version of the Legacy Build Menu that adds in cost per second and build time info",
+		author = "Original widget by Floris.\nCost/second by engolianth and zenfur.\nMaintained by ChrisFloofyKitsune.",
 		date = "June 2024",
 		license = "GNU GPL, v2 or later",
 		layer = 0,
@@ -268,6 +268,10 @@ local function drawDetailedCostLabels(label_x, label_y, uid, fontSize, disabled)
 
 		if uid == nil then
 			return
+		end
+
+		if font2 == nil then
+			font2 = get_font2()
 		end
 
 		local buildTime = units.buildTime[uid]

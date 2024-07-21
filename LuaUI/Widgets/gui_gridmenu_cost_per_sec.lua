@@ -2,8 +2,8 @@
 local function my_get_info()
 	return {
 		name = "Grid Menu with Costs/Second",
-		desc = "A dynamically patched version of the Grid Menu that adds in cost per second and build time info",
-		author = "Floris, grid by badosu and resopmok. Cost/second by engolianth and zenfur. Maintained by ChrisFloofyKitsune.",
+		desc = "(Version 1.0)\nA dynamically patched version of the Grid Menu that adds in cost per second and build time info",
+		author = "Original buildmenu by Floris, grid by badosu and resopmok.\nCost/second by engolianth and zenfur.\nMaintained by ChrisFloofyKitsune.",
 		date = "June 2024",
 		license = "GNU GPL, v2 or later",
 		layer = 0,
@@ -260,6 +260,10 @@ local function drawDetailedCostLabels(label_x, label_y, uid, fontSize, disabled)
 
 		if uid == nil then
 			return
+		end
+		
+		if font2 == nil then
+			font2 = get_font2()
 		end
 
 		local buildTime = units.buildTime[uid]
